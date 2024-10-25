@@ -67,8 +67,8 @@ def apply_late_penalty(
     payload = {
         "submission": {
             "posted_grade": new_score,
-            "late_policy_status": "late",
-            "seconds_late_override": 0,  # just to show that the late penalty was applied
+            "late_policy_status": ("missing" if new_score in [0, "0"] else "late"),
+            "seconds_late_override": 0,  # no late days but just to show that the late penalty was applied
         }
     }
     response = requests.put(submission_url, headers=headers, json=payload)
