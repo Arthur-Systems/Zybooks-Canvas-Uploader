@@ -98,17 +98,17 @@ def main(zybooks_file, canvas_file):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="""
+    parser = argparse.ArgumentParser(
+        description="""
     Make a canvas uploadable csv for a graded CSE20 Assignment. 
         To do the grading: 
          \t1. Download a canvas gradebook including all students (Only the first five info columns will be used)
          \t2. Download report for an assignment from Zybooks.
          \t3. Run the script
-         \t4. Publish the assignment on canvas. 
-         \t5. Import the generated CSV to canvas.
 
         Outputs: canvas_graded_output.csv, unmatched_emails.csv, and updated_zybooks.csv""",
-                                     formatter_class=RawTextHelpFormatter)
+        formatter_class=RawTextHelpFormatter,
+    )
 
     parser.add_argument(
         "-z", metavar='--zybooks_file',
