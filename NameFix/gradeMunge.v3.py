@@ -1,7 +1,7 @@
-import argparse
+import os
 import pandas as pd
-from argparse import RawTextHelpFormatter
-
+import datetime
+import shutil
 
 def process_row(canvas_row, zy_df):
     # Extract email from Canvas row
@@ -68,7 +68,25 @@ def process_csv(canvas_df, zy_df):
     return processed_df, unmatched_df
 
 
-def main(zybooks_file, canvas_file):
+def main():
+    # Automatically find the Zybooks and Canvas files
+    current_year = str(datetime.datetime.now().year)
+    files = os.listdir('.')
+
+    # Find the Zybooks file (starts with "UCSC")
+    zybooks_file_candidates = [f for f in files if f.startswith("UCSC") and f.endswith(".csv")]
+    if not zybooks_file_candidates:
+        raise FileNotFoundError("A Zybooks Gradebook File has NOT been found.")
+    zybooks_file= zybooks_file_candidates[0]
+
+    # Find the Canvas file (starts with current year)
+    # NOTE: This Process can be Automated https://canvas.instructure.com/doc/api/users.html#method.profile.settings
+    # But is difficult to implement in a short time frame
+    canvas_file_candidates = [f for f in files if f.startswith(current_year) and f.endswith(".csv")]
+    if not canvas_file_candidates:
+        raise FileNotFoundError(f"A Canvas Gradebook File has NOT been found.")
+    canvas_file = canvas_file_candidates[0]
+
     # Load Zybooks CSV
     zy_df = pd.read_csv(zybooks_file)
 
@@ -77,16 +95,17 @@ def main(zybooks_file, canvas_file):
 
     # Load Canvas CSV
     canvas_df = pd.read_csv(canvas_file)
-    canvas_df["SIS Login ID"] = canvas_df["SIS Login ID"].str.lower()  # Normalize email case for matching
+    canvas_df["SIS Login ID"] = canvas_df["SIS Login ID"].str.lower()  # Normalize email case
 
     # Process the CSV row by row
     result_df, unmatched_df = process_csv(canvas_df, zy_df)
 
-    # Write the results to new CSV files
+    # Define output files
     result_file_name = "canvas_graded_output.csv"
     unmatched_file_name = "unmatched_emails.csv"
     updated_zybooks_file = "updated_zybooks.csv"
 
+    # Write the results to new CSV files
     result_df.to_csv(result_file_name, index=False)
     unmatched_df.to_csv(unmatched_file_name, index=False)
     # Save the updated Zybooks data with corrected names
@@ -96,34 +115,25 @@ def main(zybooks_file, canvas_file):
     print(f"Unmatched emails have been saved to {unmatched_file_name}")
     print(f"Updated Zybooks data saved to {updated_zybooks_file}")
 
+    # After processing, create old directories and move files
+    oldzybooks_dir = "oldzybooks"
+    oldcanvas_dir = "oldcanvas"
+    output_dir = "output"
+
+    os.makedirs(oldzybooks_dir, exist_ok=True)
+    # os.makedirs(oldcanvas_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Move Zybooks files
+    shutil.move(zybooks_file, os.path.join(oldzybooks_dir, zybooks_file))
+    # Move Canvas files
+    # shutil.move(canvas_file, os.path.join(oldcanvas_dir, canvas_file))
+
+    # Move output files
+    shutil.move(updated_zybooks_file, os.path.join(output_dir, updated_zybooks_file))
+    shutil.move(result_file_name, os.path.join(output_dir, result_file_name))
+    shutil.move(unmatched_file_name, os.path.join(output_dir, unmatched_file_name))
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="""
-    Make a canvas uploadable csv for a graded CSE20 Assignment. 
-        To do the grading: 
-         \t1. Download a canvas gradebook including all students (Only the first five info columns will be used)
-         \t2. Download report for an assignment from Zybooks.
-         \t3. Run the script
-
-        Outputs: canvas_graded_output.csv, unmatched_emails.csv, and updated_zybooks.csv""",
-        formatter_class=RawTextHelpFormatter,
-    )
-
-    parser.add_argument(
-        "-z", metavar='--zybooks_file',
-        required=True,
-        type=str,
-        help="Zybooks file"
-    )
-
-    parser.add_argument(
-        "-c", metavar='--canvas_file',
-        required=True,
-        type=str,
-        help="Canvas grade file"
-    )
-
-    args = parser.parse_args()
-
-    main(zybooks_file=args.z, canvas_file=args.c)
+    main()

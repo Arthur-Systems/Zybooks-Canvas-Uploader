@@ -1,10 +1,12 @@
-import pyfiglet
-import json
 import argparse
+import json
 import sys
+
+import pyfiglet
 import requests
-import zyphraser
-from canvas_api import get_students, find_assignment, get_assignments
+
+from Publisher.utils import zyphraser
+from Publisher.utils.canvas_api import get_students, find_assignment, get_assignments
 
 
 def print_banner():
@@ -32,7 +34,7 @@ def display_intro():
     print("\n")
 
 
-def load_config(config_file="config.json"):
+def load_config(config_file="../config.json"):
     try:
         with open(config_file, "r") as f:
             return json.load(f)
@@ -56,29 +58,19 @@ def get_submission(course_id, assignment_id, student_id, headers):
     return response.json()
 
 
-def apply_late_penalty(
-    course_id, assignment_id, student_id, headers, current_grade, csv_grade
-):
-    # Calculate the score increase and apply an 80% late penalty
-    score_increased_by = csv_grade - current_grade
-    new_score = current_grade + score_increased_by * 0.8
-
+def apply_late_penalty(course_id, assignment_id, student_id, headers, csv_grade):
     submission_url = f"{endpoint}/courses/{course_id}/assignments/{assignment_id}/submissions/{student_id}"
     payload = {
         "submission": {
-            "posted_grade": new_score,
-            "late_policy_status": ("missing" if new_score in [0, "0"] else "late"),
-            "seconds_late_override": 0,  # no late days but just to show that the late penalty was applied
+            "posted_grade": csv_grade,
+            "late_policy_status": ("missing" if csv_grade in [0, "0"] else "late"),
+            "seconds_late_override": 345600,  # 4 days in seconds
         }
     }
     response = requests.put(submission_url, headers=headers, json=payload)
     if response.status_code != 200:
         print(
             f"Failed to update grade for student {student_id}. Status code: {response.status_code}, Response: {response.text}"
-        )
-    else:
-        print(
-            f"Applied late penalty. Updated grade to {new_score} for student {student_id}"
         )
 
 
@@ -97,28 +89,37 @@ def get_grades(course_id, headers, assignment_name, csv_file):
 
     # Check and update the grade for each student
     for student in students:
-        first_name, last_name = (
-            student["sortable_name"].split(", ")[1],
-            student["sortable_name"].split(", ")[0],
+        first_name = student["sortable_name"].split(", ")[1]
+        last_name = student["sortable_name"].split(", ")[0]
+        csv_grade = (
+            float(student_grades.get((first_name, last_name)))
+            if (first_name, last_name) in student_grades
+            else 0
         )
-        csv_grade = float(student_grades.get((first_name, last_name), 0))
-
         submission = get_submission(course_id, assignment["id"], student["id"], headers)
         if submission and "grade" in submission:
             current_grade = float(submission["grade"]) if submission["grade"] else 0
             if csv_grade > current_grade or current_grade == 0:
-                apply_late_penalty(
-                    course_id,
-                    assignment["id"],
-                    student["id"],
-                    headers,
-                    current_grade,
-                    csv_grade,
-                )
+                if csv_grade * 0.8 > current_grade:
+                    apply_late_penalty(
+                        course_id, assignment["id"], student["id"], headers, csv_grade
+                    )
+                    print(
+                        f"LATE!!!: Current Grade: {current_grade}, New Grade: {csv_grade}. Applied late penalty. Updated grade for student {student['sortable_name']}"
+                    )
+                elif current_grade == 0:
+                    apply_late_penalty(
+                        course_id, assignment["id"], student["id"], headers, csv_grade
+                    )
+                else:
+                    # If the grade is lower than 80% of the original grade do NOT apply late penalty
+                    print(
+                        f" New Grade for student {student['sortable_name']} ({csv_grade}) is not 80% lower than the current grade ({current_grade}). No late penalty applied."
+                    )
+
             else:
-                print(
-                    f"No late penalty applied. Grade not updated for student {student['sortable_name']}"
-                )
+                # No late penalty applied
+                pass
         else:
             print(f"No current grade found for student {student['sortable_name']}")
 
@@ -163,7 +164,8 @@ def main():
         )
         assignment_name, csv_file = get_user_input()
     else:
-        assignment_name, csv_file = args.assignment_name, args.csv_file
+        assignment_name = args.assignment_name
+        csv_file = args.csv_file
 
     global endpoint
     endpoint = "https://canvas.ucsc.edu/api/v1"

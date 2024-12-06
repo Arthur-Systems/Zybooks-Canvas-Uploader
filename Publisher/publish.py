@@ -2,8 +2,8 @@ import sys
 import argparse
 import pyfiglet
 import json
-from canvas_api import get_students, get_assignments, find_assignment, update_grade
-from zyphraser import get_scores
+from Publisher.utils.canvas_api import get_students, get_assignments, find_assignment, update_grade
+from Publisher.utils.zyphraser import get_scores
 
 def print_banner():
     banner = pyfiglet.figlet_format("Canvas Grade Publisher", font="slant")
@@ -21,12 +21,13 @@ def display_intro():
     print(separator)
 
 def get_user_input():
-    print("Please enter the following details:")
+    print("ENTER THE FOLLOWING DETAILS")
     assignment_name = input("Assignment Name: ")
     csv_file = input("Path to CSV File (default: 'grade.csv'): ") or 'grade.csv'
+    print("Starting the grade update process...")
     return assignment_name, csv_file
 
-def load_config(config_file='config.json'):
+def load_config(config_file='../config.json'):
     try:
         with open(config_file, 'r') as f:
             return json.load(f)
