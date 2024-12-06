@@ -164,6 +164,8 @@ CSV file.
     - Enter the assignment name and the path to the CSV file when prompted. The program defaults to `grade.csv` in the
       `Publisher` directory.
     - Review the output to ensure grades are successfully updated.
+      
+![img4.png](docs/img4.png)
 
 ---
 
