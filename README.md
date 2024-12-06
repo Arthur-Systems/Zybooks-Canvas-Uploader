@@ -36,6 +36,11 @@ between Zybooks and Canvas, avoiding any issues during grading.
       ![Screenshot 2024-12-06 at 12.03.31 AM.png](docs/Screenshot%202024-12-06%20at%2012.03.31%E2%80%AFAM.png)
     - The file will start with "UCSCCSE" and include the course name in the filename.
     - Move the downloaded file to the **"Name Fix"** directory in your project environment.
+    - If you want to download reports dated for a specific date in the past, Click on reporting and select the date then check the box for each assignment you want to download.
+    - Click on the download button to download the report.
+    ![Screenshot 2024-12-06 at 1.36.46 AM.png](docs/Screenshot%202024-12-06%20at%201.36.46%E2%80%AFAM.png)
+      
+     
 
 2. **Download the CSV file from Canvas:**
     - Navigate to the **Canvas course** and click the **"Grades"** tab in the left sidebar.
