@@ -26,8 +26,9 @@ def display_intro():
 def get_user_input():
     print("ENTER THE FOLLOWING DETAILS")
     csv_file = input("Path to CSV File (default: 'grade.csv'): ") or 'grade.csv'
+    assignment_name = input("Enter the assignment name: ")
     print("Starting the grade update process...")
-    return csv_file
+    return csv_file, assignment_name
 
 
 def load_config(config_file='../config.json'):
@@ -71,6 +72,7 @@ def main():
     parser.add_argument('--access_token', help='The Canvas API access token')
     parser.add_argument('--course_id', help='The Canvas course ID')
     parser.add_argument('--csv_file', default='grade.csv', help='Path to the CSV file with student grades')
+    parser.add_argument('--assignment_name', help='The name of the assignment in Canvas')
 
     args = parser.parse_args()
 
@@ -81,7 +83,11 @@ def main():
         print("Access token and course ID must be provided either via config.json or command-line arguments.")
         sys.exit(1)
 
-    csv_file = args.csv_file or get_user_input()
+    csv_file = args.csv_file
+    assignment_name = args.assignment_name
+
+    if not assignment_name:
+        csv_file, assignment_name = get_user_input()
 
     endpoint = 'https://canvas.ucsc.edu/api/v1'
     headers = {
@@ -92,8 +98,6 @@ def main():
     students = get_students(course_id, headers, endpoint)
     assignments = get_assignments(course_id, headers, endpoint)
 
-    # Assume the assignment name is the CSV filename (without extension)
-    assignment_name = csv_file.split("/")[-1].split(".")[0]
     assignment = find_assignment(assignments, assignment_name)
 
     if not assignment:

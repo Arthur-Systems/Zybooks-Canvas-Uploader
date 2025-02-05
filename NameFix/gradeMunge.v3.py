@@ -24,7 +24,7 @@ def process_row(canvas_row, new_df):
     if not new_entry.empty:
         # Extract names from the dataset and normalize for comparison
         new_first_name = new_entry["First Name"].values[0].strip()
-        new_last_name = new_entry["Last Name"].values[0].strip()
+        new_last_name = new_entry["Last Name"].values[0].strip() if isinstance(new_entry["Last Name"].values[0], str) else ""
 
         # Compare names and update if necessary
         if new_first_name != first_name or new_last_name != last_name:
