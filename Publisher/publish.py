@@ -1,126 +1,205 @@
+#!/usr/bin/env python3
+
 import sys
-import argparse
+import glob
+import os
 import pyfiglet
 import json
 import pandas as pd
-from Publisher.utils.canvas_api import get_students, get_assignments, find_assignment, update_grade
+from Publisher.utils.canvas_api import (
+    get_students, get_assignments, find_assignment,
+    update_grade, update_tokens, get_user_profile
+)
 
+# Constants
+LATE_PENALTY_RATE = 0.2
 
+# ---------------------------
+# Banner and Intro
+# ---------------------------
 def print_banner():
     banner = pyfiglet.figlet_format("Canvas Grade Publisher", font="slant")
-    separator = u'\u2500' * 100
-    print(separator)
+    sep = u'─' * 100
+    print(sep)
     print(banner)
-    print(separator)
-    print("\n")
+    print(sep)
+    print()
 
 
 def display_intro():
-    separator = u'\u2500' * 100
-    print("Welcome to the Grade Publisher tool!")
-    print("This script will update grades for all students in Canvas.")
-    print("Project created by: Arthur Wei")
-    print(separator)
+    sep = u'─' * 100
+    print("Canvas Grade Publisher")
+    print("Updates grades using:")
+    print(" • Downloaded grades CSV (prefix 'CSE30SP25') for on-time and late grades")
+    print(" • Canvas gradebook export CSV (prefix '2025-') for current token counts")
+    print(sep)
 
-
-def get_user_input():
-    print("ENTER THE FOLLOWING DETAILS")
-    csv_file = input("Path to CSV File (default: 'grade.csv'): ") or 'grade.csv'
-    assignment_name = input("Enter the assignment name: ")
-    print("Starting the grade update process...")
-    return csv_file, assignment_name
-
-
+# ---------------------------
+# Config Loader
+# ---------------------------
 def load_config(config_file='../config.json'):
     try:
         with open(config_file, 'r') as f:
             return json.load(f)
-    except FileNotFoundError:
-        print(f"Config file '{config_file}' not found, using command-line arguments.")
-    except json.JSONDecodeError:
-        print(f"Error parsing the config file '{config_file}', using command-line arguments.")
-    return {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
+# ---------------------------
+# CSV Auto-Detection by Prefix
+# ---------------------------
+def detect_csv_by_prefix(prefix):
+    matches = glob.glob(f"{prefix}*.csv")
+    if not matches:
+        print(f"Error: No CSV matching '{prefix}*.csv' in {os.getcwd()}")
+        sys.exit(1)
+    if len(matches) > 1:
+        print(f"Error: Multiple CSVs matching '{prefix}*.csv': {matches}")
+        sys.exit(1)
+    return matches[0]
 
-def detect_grade_column(df):
-    """Detects the correct grade column dynamically."""
-    for col in df.columns:
-        if "Grade" in col and "Max" not in col:
-            return col
-    raise ValueError("No valid grade column found.")
+# ---------------------------
+# Parse Downloaded Grades CSV
+# ---------------------------
+def parse_downloaded_grades(path):
+    df = pd.read_csv(path)
+    required = ['First Name', 'Last Name', 'Email', 'Grade', 'Late Grade']
+    for col in required:
+        if col not in df.columns:
+            raise ValueError(f"Missing '{col}' in downloaded grades CSV")
 
+    name_map = {}
+    email_map = {}
+    for _, row in df.iterrows():
+        first = str(row['First Name']).strip() if pd.notna(row['First Name']) else ''
+        last = str(row['Last Name']).strip() if pd.notna(row['Last Name']) else ''
+        email = str(row['Email']).strip().lower() if pd.notna(row['Email']) else ''
 
-def get_scores(csv_file):
-    """Reads grades from CSV and maps them to student names."""
-    df = pd.read_csv(csv_file)
-    grade_column = detect_grade_column(df)
+        regular = None
+        if pd.notna(row['Grade']):
+            try:
+                regular = float(row['Grade'])
+            except (ValueError, TypeError):
+                regular = None
+        late = None
+        if pd.notna(row['Late Grade']):
+            try:
+                late = float(row['Late Grade'])
+            except (ValueError, TypeError):
+                late = None
 
-    student_grades = {
-        (row['First Name'], row['Last Name']): row[grade_column]
-        for _, row in df.iterrows()
-    }
-    return student_grades
+        entry = {'regular': regular, 'late': late}
+        name_map[(first, last)] = entry
+        if email:
+            email_map[email] = entry
+    return name_map, email_map
 
+# ---------------------------
+# Parse Gradebook Export CSV for Current Token Counts
+# ---------------------------
+def parse_gradebook_tokens(path):
+    df = pd.read_csv(path)
+    if 'SIS Login ID' not in df.columns:
+        raise ValueError("Gradebook CSV must include 'SIS Login ID'")
+    # Look for column starting with 'Late Submission Tokens'
+    token_col = next((c for c in df.columns if c.startswith('Late Submission Tokens')), None)
+    if not token_col:
+        raise ValueError("Gradebook CSV missing 'Late Submission Tokens' column")
 
+    tokens_map = {}
+    for _, row in df.iterrows():
+        email = str(row['SIS Login ID']).strip().lower()
+        tokens = 0
+        if pd.notna(row[token_col]):
+            try:
+                tokens = int(float(row[token_col]))
+            except (ValueError, TypeError):
+                tokens = 0
+        tokens_map[email] = tokens
+    return tokens_map
+
+# ---------------------------
+# Grade Computation Logic
+# ---------------------------
+def compute_final_grade(entry, tokens):
+    if entry.get('late') is None:
+        return entry.get('regular')
+    if tokens > 0:
+        return entry['late']
+    if entry.get('regular') is None:
+        return entry['late'] * (1 - LATE_PENALTY_RATE)
+    diff = entry['late'] - entry['regular']
+    return entry['regular'] + diff * (1 - LATE_PENALTY_RATE)
+
+# ---------------------------
+# Main
+# ---------------------------
 def main():
     print_banner()
     display_intro()
-
     config = load_config()
 
-    parser = argparse.ArgumentParser(description='Update grades for all students in Canvas.')
-    parser.add_argument('--access_token', help='The Canvas API access token')
-    parser.add_argument('--course_id', help='The Canvas course ID')
-    parser.add_argument('--csv_file', default='grade.csv', help='Path to the CSV file with student grades')
-    parser.add_argument('--assignment_name', help='The name of the assignment in Canvas')
-
-    args = parser.parse_args()
-
-    access_token = args.access_token or config.get('access_token')
-    course_id = args.course_id or config.get('course_id')
-
-    if not access_token or not course_id:
-        print("Access token and course ID must be provided either via config.json or command-line arguments.")
+    access_token         = config.get('access_token')
+    course_id            = config.get('course_id')
+    assignment_name      = config.get('assignment_name')
+    tokens_assignment_id = config.get('tokens_assignment_id')
+    if not all([access_token, course_id, assignment_name, tokens_assignment_id]):
+        print("Error: 'access_token', 'course_id', 'assignment_name', and 'tokens_assignment_id' must be set in config.json")
         sys.exit(1)
 
-    csv_file = args.csv_file
-    assignment_name = args.assignment_name
+    dl_csv = detect_csv_by_prefix('CSE30SP25')
+    gb_csv = detect_csv_by_prefix('2025-')
+    print(f"Downloaded grades: {dl_csv}\nGradebook export: {gb_csv}")
 
-    if not assignment_name:
-        csv_file, assignment_name = get_user_input()
+    name_map, email_map = parse_downloaded_grades(dl_csv)
+    tokens_map = parse_gradebook_tokens(gb_csv)
+    print(f"Parsed {len(name_map)} downloaded grades and {len(tokens_map)} token counts.")
 
+    headers  = {'Content-Type': 'application/json', 'Authorization': f'Bearer {access_token}'}
     endpoint = 'https://canvas.ucsc.edu/api/v1'
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {access_token}'
-    }
-
     students = get_students(course_id, headers, endpoint)
-    assignments = get_assignments(course_id, headers, endpoint)
-
-    assignment = find_assignment(assignments, assignment_name)
-
-    if not assignment:
+    assigns  = get_assignments(course_id, headers, endpoint)
+    assign   = find_assignment(assigns, assignment_name)
+    if not assign:
         print(f"Assignment '{assignment_name}' not found.")
-        print("Available assignments:", [assign['name'] for assign in assignments])
         sys.exit(1)
-
-    student_grades = get_scores(csv_file)
 
     for student in students:
-        name_parts = student['sortable_name'].split(", ")
-        last_name = name_parts[0]
-        first_name = name_parts[1] if len(name_parts) > 1 else ''
-        grade = student_grades.get((first_name, last_name))
+        sid = student['id']
 
-        if grade is not None:
-            update_grade(course_id, assignment['id'], student['id'], grade, headers, endpoint)
-            print(f"Updated grade for student {student['sortable_name']} to {grade}")
-        else:
-            print(f"No grade found for student {student['sortable_name']}")
+        # fetch full profile so we can get their real email address
+        profile = get_user_profile(sid, headers, endpoint)
+        email = profile.get('login_id', '').strip().lower()
 
-    print(f"All students have been updated with their grades for assignment '{assignment_name}'.")
+        # now look up grades & tokens by that email
+        entry = email_map.get(email)
+        print(f"Entry for {student['sortable_name']}: {entry}")
+        if not entry:
+            sn = student.get('sortable_name','')
+            if ', ' in sn:
+                last, first = [x.strip() for x in sn.split(', ', 1)]
+            else:
+                parts = sn.split(); first, last = parts[0], parts[-1]
+            entry = name_map.get((first, last))
 
+        tokens = tokens_map.get(email, 0)
+        print(f"Tokens for {student['sortable_name']}: {tokens}")
+        grade  = compute_final_grade(entry, tokens) if entry else None
+        source = 'downloaded'
+
+        if entry and entry.get('late') is not None and tokens > 0:
+            new_tokens = tokens - 1
+            update_tokens(course_id, tokens_assignment_id, sid, new_tokens, headers, endpoint)
+            print(f"Token consumed for {student['sortable_name']}: tokens left {new_tokens}")
+
+        if grade is None:
+            # fallback to zero if no entry
+            grade = 0
+            source = 'fallback'
+
+        update_grade(course_id, assign['id'], sid, grade, headers, endpoint)
+        print(f"Updated {student['sortable_name']} to {grade} ({source})")
+
+    print('All done.')
 
 if __name__ == '__main__':
     main()
